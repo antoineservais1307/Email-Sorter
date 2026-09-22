@@ -1,2 +1,6 @@
-token.json
-credentials.json
+data/*
+!data/.gitkeep
+
+config/*
+!config/.gitkeep
+__pycache__/
