@@ -4,13 +4,16 @@ import sqlite3
 
 
 def convert_json_to_db(
-    json_file: str = "data/classified_messages.json",
+    json_file: str = "data/raw_messages.json",
     db_path: str = "data/emails.db",
     table_name: str = "messages",
 ):
-    """Convertit le fichier JSON des e-mails classifiés en table SQLite."""
+    """Importe les emails JSON dans SQLite sans créer de doublons."""
+
     if not os.path.exists(json_file):
-        print(f"Erreur : Le fichier {json_file} n'existe pas.")
+        print(
+            f"Erreur : Le fichier {json_file} n'existe pas."
+        )
         return
 
     with open(json_file, "r", encoding="utf-8") as f:
@@ -23,47 +26,89 @@ def convert_json_to_db(
         print("Aucun message trouvé dans le fichier JSON.")
         return
 
-    # Extraire toutes les clés présentes dans le JSON (message_id, sender, subject, date, body, classification)
-    columns = list(
-        dict.fromkeys(key for item in messages_data for key in item)
-    )
+    # ---------------------------------------------------------
+    # Vérification du message_id
+    # ---------------------------------------------------------
 
-    quoted_table = f'"{table_name}"'
-    quoted_cols = [f'"{col}"' for col in columns]
-
-    columns_def = ", ".join(f"{col} TEXT" for col in quoted_cols)
-    columns_list = ", ".join(quoted_cols)
-    placeholders = ", ".join("?" for _ in columns)
-
-    # Préparation des valeurs avec conversion JSON pour les objets complexes
-    rows = [
-        tuple(
-            (
-                json.dumps(item.get(col), ensure_ascii=False)
-                if isinstance(item.get(col), (dict, list))
-                else item.get(col)
+    for message in messages_data:
+        if not message.get("message_id"):
+            print(
+                "Erreur : un message ne possède pas de message_id."
             )
-            for col in columns
-        )
-        for item in messages_data
-    ]
+            return
 
     conn = sqlite3.connect(db_path)
+
     try:
-        with conn:
-            conn.execute(
-                f"CREATE TABLE IF NOT EXISTS {quoted_table} ({columns_def})"
+        cursor = conn.cursor()
+
+        # -----------------------------------------------------
+        # Création de la table
+        # -----------------------------------------------------
+
+        cursor.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS "{table_name}" (
+                message_id TEXT PRIMARY KEY,
+                sender TEXT,
+                subject TEXT,
+                date TEXT,
+                body TEXT,
+                classification TEXT
             )
-            conn.executemany(
-                f"INSERT INTO {quoted_table} ({columns_list}) VALUES ({placeholders})",
-                rows,
-            )
-        print(
-            f"Succès : {len(rows)} messages convertis et insérés dans '{db_path}' (table: {table_name})."
+            """
         )
+
+        # -----------------------------------------------------
+        # Préparation des données
+        # -----------------------------------------------------
+
+        rows = []
+
+        for message in messages_data:
+
+            rows.append(
+                (
+                    message.get("message_id"),
+                    message.get("sender"),
+                    message.get("subject"),
+                    message.get("date"),
+                    message.get("body"),
+                )
+            )
+
+        # -----------------------------------------------------
+        # INSERT uniquement pour les nouveaux emails
+        # -----------------------------------------------------
+
+        cursor.executemany(
+            f"""
+            INSERT OR IGNORE INTO "{table_name}"
+            (
+                message_id,
+                sender,
+                subject,
+                date,
+                body
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+        inserted_count = cursor.rowcount
+
+        conn.commit()
+
+        ignored_count = len(rows) - inserted_count
+
+        print(
+            f"✅ {inserted_count} nouveau(x) message(s) ajouté(s)."
+        )
+
+        print(
+            f"⏭️ {ignored_count} message(s) déjà présent(s) ignoré(s)."
+        )
+
     finally:
         conn.close()
-
-
-if __name__ == "__main__":
-    convert_json_to_db()

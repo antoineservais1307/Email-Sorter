@@ -1,4 +1,5 @@
 import sqlite3
+import json
 
 
 def query_database():
@@ -16,6 +17,7 @@ def query_database():
 
     for row in results:
         print(f"Classification: {row[0]}, Count: {row[1]}")
+
 
     conn.close()
 
